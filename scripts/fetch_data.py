@@ -52,7 +52,8 @@ def load_chanceable():
 
 
 def norm_name(s):
-    return (s or "").strip().lower()
+    # normalize curly apostrophes/quotes to straight so poe2db-derived names match poe2scout
+    return (s or "").strip().lower().replace("’", "'").replace("‘", "'")
 
 
 # Loaded once at import from chanceable_bases.json (norm_name is defined above).
@@ -68,11 +69,8 @@ def is_chanceable(base, name):
     return norm_name(base) in CHANCEABLE_BASES and norm_name(name) not in NOT_CHANCEABLE
 
 
-def get(path, params=None, retries=4):
-    """GET a JSON endpoint with basic retry/backoff."""
-    url = f"{API}/{path}"
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
+def get_url(url, retries=4):
+    """GET a full JSON URL with basic retry/backoff."""
     last = None
     for attempt in range(retries):
         try:
@@ -84,6 +82,41 @@ def get(path, params=None, retries=4):
             time.sleep(1.5 * (attempt + 1))
     print(f"  ! failed: {url} ({last})", file=sys.stderr)
     return None
+
+
+def get(path, params=None, retries=4):
+    """GET a poe2scout JSON endpoint with basic retry/backoff."""
+    url = f"{API}/{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    return get_url(url, retries)
+
+
+# poe.ninja economy: gives per-unique `listingCount`, a demand/popularity signal the
+# poe2scout board doesn't expose. Categories map poe2scout cat -> poe.ninja type.
+NINJA = "https://poe.ninja/poe2/api/economy/stash/current/item/overview"
+NINJA_TYPES = {"UniqueArmours", "UniqueWeapons", "UniqueAccessories",
+               "UniqueJewels", "UniqueFlasks"}
+
+
+def fetch_ninja_popularity(league):
+    """Return {normalized unique name -> total listingCount across base variants}.
+
+    Best-effort: if poe.ninja is unreachable we return {} and fall back to poe2scout
+    quantities, so the site still builds.
+    """
+    pop = {}
+    for ntype in sorted(NINJA_TYPES):
+        url = NINJA + "?" + urllib.parse.urlencode({"league": league, "type": ntype})
+        data = get_url(url)
+        lines = (data or {}).get("lines") or []
+        for it in lines:
+            nm = norm_name(it.get("name"))
+            if nm:
+                pop[nm] = pop.get(nm, 0) + (it.get("listingCount") or 0)
+        print(f"  ninja/{ntype}: {len(lines)}")
+        time.sleep(0.4)
+    return pop
 
 
 def pick_league(leagues):
@@ -157,7 +190,29 @@ def norm_unique(it):
             "price": price, "qty": it.get("CurrentQuantity"),
             "chg1d": c1, "chg7d": c7, "spark": spark_from_logs(price, it.get("PriceLogs")),
             "chanceable": is_chanceable(base, name),
+            "mods": tooltip_mods(meta),
             "icon": it.get("IconUrl")}
+
+
+def tooltip_mods(meta):
+    """Compact mod bundle for a hover tooltip. Keys kept short to limit JSON size:
+    i=implicit mods, e=explicit mods, f=flavour text, lvl=level requirement."""
+    impl = meta.get("implicit_mods") or []
+    expl = meta.get("explicit_mods") or []
+    flav = meta.get("flavor_text")
+    lvl = (meta.get("requirements") or {}).get("Level")
+    if not (impl or expl or flav):
+        return None
+    out = {}
+    if impl:
+        out["i"] = impl
+    if expl:
+        out["e"] = expl
+    if flav:
+        out["f"] = flav
+    if lvl:
+        out["lvl"] = lvl
+    return out
 
 
 def norm_currency(it):
@@ -253,6 +308,13 @@ def main():
         uniques_by_cat[c] = rows
         all_uniques.extend(rows)
         print(f"  uniques/{c}: {len(rows)}")
+
+    # Enrich uniques with poe.ninja listing counts (a "how many players use it" proxy).
+    ninja_pop = fetch_ninja_popularity(league)
+    for u in all_uniques:
+        u["listings"] = ninja_pop.get(norm_name(u["name"]))
+    print(f"  matched poe.ninja listings for "
+          f"{sum(1 for u in all_uniques if u.get('listings') is not None)}/{len(all_uniques)} uniques")
 
     all_currency, currency_by_cat = [], {}
     for c in cur_cats:

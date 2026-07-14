@@ -51,6 +51,17 @@
   tbody tr:hover{background:var(--panel2)}
   .name{color:var(--gold)}
   .spark{vertical-align:middle}
+  tbody tr[data-tip]{cursor:help}
+  #tip{position:fixed;z-index:60;max-width:340px;display:none;pointer-events:none;
+    background:#07080c;border:1px solid #3b3d46;border-radius:8px;padding:9px 12px;
+    font-size:12.5px;line-height:1.45;box-shadow:0 10px 30px rgba(0,0,0,.6)}
+  #tip .tname{color:var(--gold);font-weight:700;text-align:center}
+  #tip .tbase{color:#8b93a7;text-align:center;margin-bottom:5px}
+  #tip .tlvl{color:#8b93a7;text-align:center;margin-bottom:5px;font-size:11.5px}
+  #tip .tmod{color:#8cacff;text-align:center}
+  #tip .tsep{height:1px;background:#23252d;margin:5px 0}
+  #tip .tflavor{color:#8a7857;font-style:italic;text-align:center;margin-top:6px;
+    border-top:1px solid #23252d;padding-top:6px}
   .tablewrap{max-height:70vh;overflow:auto}
   .note{color:var(--dim);font-size:12.5px;margin-top:8px}
   .warn{background:#231a12;border:1px solid #4a3410;color:#e0c48a;padding:10px 12px;
@@ -72,6 +83,7 @@
   </div>
 </header>
 
+<div id="tip"></div>
 <div class="wrap">
   <nav id="nav"></nav>
   <div id="view"></div>
@@ -178,7 +190,10 @@ function drawTable(cid){
   r.sort((a,b)=>{const A=a[st.sort],B=b[st.sort];
     if(A==null)return 1; if(B==null)return -1; return (A>B?1:A<B?-1:0)*st.dir;});
   $("#"+cid+"n").textContent = r.length+" items";
-  $("#"+cid+"b").innerHTML = r.slice(0,400).map(x=>"<tr>"+st.cols.map(c=>{
+  const shown = r.slice(0,400);
+  st.view = shown;
+  $("#"+cid+"b").innerHTML = shown.map((x,i)=>
+    `<tr data-cid="${cid}" data-idx="${i}"${x.mods?' data-tip="1"':''}>`+st.cols.map(c=>{
     let v=x[c.k];
     if(c.f==="ex") v=`${fmtEx(v)}<span class="sub"> ${fmtDiv(toDiv(v))}</span>`;
     else if(c.f==="chg") v=chg(v);
@@ -188,6 +203,40 @@ function drawTable(cid){
     else if(v==null) v="–";
     return `<td>${v}</td>`;}).join("")+"</tr>").join("");
 }
+
+// ---------- item hover tooltip (mods from poe2scout ItemMetadata) ----------
+let TIP=null;
+function buildTip(u){
+  const m=u&&u.mods; if(!m) return "";
+  const row=(s,c)=>`<div class="${c}">${s}</div>`;
+  let h=row(u.name,"tname")+row(u.base||u.type||"","tbase");
+  if(m.lvl) h+=row("Requires Level "+m.lvl,"tlvl");
+  (m.i||[]).forEach(s=>h+=row(s,"tmod"));
+  if((m.i&&m.i.length)&&(m.e&&m.e.length)) h+=`<div class="tsep"></div>`;
+  (m.e||[]).forEach(s=>h+=row(s,"tmod"));
+  if(m.f) h+=row(m.f.replace(/\r?\n/g,"<br>"),"tflavor");
+  return h;
+}
+function tipShow(e){
+  const tr=e.currentTarget, st=window[tr.dataset.cid]; if(!st) return;
+  const u=st.view&&st.view[+tr.dataset.idx];
+  if(!u||!u.mods){ tipHide(); return; }
+  TIP=TIP||$("#tip"); TIP.innerHTML=buildTip(u); TIP.style.display="block"; tipMove(e);
+}
+function tipMove(e){
+  if(!TIP||TIP.style.display==="none") return;
+  const pad=14, w=TIP.offsetWidth, h=TIP.offsetHeight;
+  let x=e.clientX+pad, y=e.clientY+pad;
+  if(x+w>innerWidth) x=e.clientX-w-pad;
+  if(y+h>innerHeight) y=innerHeight-h-6;
+  TIP.style.left=Math.max(6,x)+"px"; TIP.style.top=Math.max(6,y)+"px";
+}
+function tipHide(){ if(TIP) TIP.style.display="none"; }
+document.addEventListener("mouseover",e=>{const tr=e.target.closest&&e.target.closest("tr[data-tip]");
+  if(tr) tipShow({currentTarget:tr, clientX:e.clientX, clientY:e.clientY});});
+document.addEventListener("mousemove",e=>{ if(TIP&&TIP.style.display!=="none") tipMove(e);});
+document.addEventListener("mouseout",e=>{const tr=e.target.closest&&e.target.closest("tr[data-tip]");
+  if(tr && !(e.relatedTarget&&tr.contains(e.relatedTarget))) tipHide();});
 function ts(cid,k){const s=window[cid]; s.dir = s.sort===k? -s.dir : -1; s.sort=k; drawTable(cid);}
 function tq(cid,v){window[cid].q=v.toLowerCase();drawTable(cid);}
 function tp(cid,v){window[cid].minP=+v||0;drawTable(cid);}
@@ -204,7 +253,7 @@ const XCOLS=[{k:"base",t:"White base",f:"name"},{k:"jackpot",t:"Jackpot unique"}
   {k:"jackpot_div",t:"Jackpot (div)"},{k:"num_uniques",t:"# uniques"},
   {k:"breakeven_pct",t:"Break-even %"},{k:"jackpot_ex",t:"Jackpot (Ex)",f:"num"}];
 const GCOLS=[{k:"name",t:"Unique",f:"name"},{k:"base",t:"Base"},{k:"slot",t:"Slot"},
-  {k:"price",t:"Price",f:"ex"},{k:"qty",t:"Listed",f:"num"},
+  {k:"price",t:"Price",f:"ex"},{k:"pop",t:"Players (listings)",f:"num"},
   {k:"chg7d",t:"7d",f:"chg"},{k:"spark",t:"7d trend",f:"spark",nosort:true}];
 
 function allUniques(){return Object.values(DATA.uniques_by_cat).flat();}
@@ -217,8 +266,8 @@ function chanceableGear(filt, n){
   const cats = filt==="all" ? GEAR_CATS : [filt];
   return allUniques()
     .filter(u=>u.chanceable && cats.includes(u.cat))
-    .map(u=>({...u, slot: GEAR_LABEL[u.cat]||u.cat}))
-    .sort((a,b)=>(b.qty||0)-(a.qty||0))
+    .map(u=>({...u, slot: GEAR_LABEL[u.cat]||u.cat, pop: (u.listings!=null?u.listings:(u.qty||0))}))
+    .sort((a,b)=>b.pop-a.pop)
     .slice(0, n||50);
 }
 function setGear(f){ GEARFILT=f; render(); }
@@ -280,21 +329,23 @@ function render(){
   }
   if(CUR==="gear"){
     const rows = chanceableGear(GEARFILT, 50);
-    const total = allUniques().filter(u=>u.chanceable && GEAR_CATS.includes(u.cat)).length;
+    const total = allUniques().filter(u=>u.chanceable &&
+      (GEARFILT==='all' ? GEAR_CATS.includes(u.cat) : u.cat===GEARFILT)).length;
     const fbtn = (k,l)=>`<button class="${GEARFILT===k?'on':''}" onclick="setGear('${k}')">${l}</button>`;
     v.innerHTML = `<p class="lead">The top 50 <b>chanceable</b> unique armour, weapons and jewellery —
       items you can realistically gamble for by chancing their white base (base verified against
-      <a href="https://poe2db.tw" target="_blank" rel="noopener">poe2db</a>). Ranked by how many are
-      listed on trade, a stand-in for how many players use them.</p>
-      <div class="warn">There is no public PoE2 build-usage API, so "popularity" here means
-        <b>market listings</b>, not a build-tracker's usage %. Heavily-used uniques tend to be heavily
-        traded, but a high listing count can also just mean the item is cheap and common.</div>
+      <a href="https://poe2db.tw" target="_blank" rel="noopener">poe2db</a>). Ranked by
+      <a href="https://poe.ninja/poe2/economy/${(DATA.league||'').toLowerCase().replace(/\\s+/g,'')}/unique-accessories" target="_blank" rel="noopener">poe.ninja</a>
+      listing counts — how many are currently on the market, a stand-in for how many players use them.</p>
+      <div class="warn">"Players (listings)" is poe.ninja's <b>market listing count</b>, not a build
+        tracker's usage %. Heavily-used uniques tend to be heavily traded, but a high count can also
+        mean an item is just cheap and common. Hover any row for the item's mods.</div>
       <nav style="position:static;margin:0 0 10px">${fbtn('all','All')}${
         GEAR_CATS.map(c=>fbtn(c,GEAR_LABEL[c])).join("")}</nav>
       ${rows.length
-        ? `<div class="controls"><span class="sub">Showing top ${rows.length} of ${
-            GEARFILT==='all'?total:rows.length} chanceable ${GEARFILT==='all'?'gear':GEAR_LABEL[GEARFILT]} uniques</span></div>
-           ${table(rows,GCOLS,"G","qty")}`
+        ? `<div class="controls"><span class="sub">Showing top ${rows.length} of ${total} chanceable
+            ${GEARFILT==='all'?'gear':GEAR_LABEL[GEARFILT]} uniques, ranked by poe.ninja listings</span></div>
+           ${table(rows,GCOLS,"G","pop")}`
         : `<p class="lead">No chanceable gear in this slot yet. The chanceable list is refreshed
            from poe2db and expands over time; the daily data run also has to have populated the
            <code>chanceable</code> flag.</p>`}`;
