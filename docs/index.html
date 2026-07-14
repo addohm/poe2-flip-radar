@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PoE2 Flip Radar</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b22; --panel2:#1e242d; --line:#2a323d;
+    --txt:#e6e9ee; --dim:#9aa4b2; --gold:#c8aa6e; --up:#4ecb71; --down:#e56a6a;
+    --accent:#6aa9ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--accent)}
+  header{padding:20px 18px 10px;border-bottom:1px solid var(--line);background:var(--panel)}
+  h1{margin:0;font-size:22px;color:var(--gold);letter-spacing:.3px}
+  h1 span{color:var(--dim);font-size:13px;font-weight:400}
+  .meta{color:var(--dim);font-size:13px;margin-top:6px}
+  .meta b{color:var(--txt)}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 14px 60px}
+  nav{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0;position:sticky;top:0;
+    background:var(--bg);padding:10px 0;z-index:5}
+  nav button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:20px;padding:8px 14px;cursor:pointer;font-size:14px}
+  nav button.on{background:var(--gold);color:#20160a;border-color:var(--gold);font-weight:600}
+  .lead{color:var(--dim);margin:2px 0 16px;max-width:760px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .card h3{margin:0 0 4px;font-size:15px}
+  .card .sub{color:var(--dim);font-size:13px}
+  .big{font-size:20px;font-weight:700}
+  .pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;
+    background:var(--panel2);color:var(--dim);border:1px solid var(--line);margin-left:6px}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .home-cat{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:16px;margin-bottom:14px}
+  .home-cat h2{margin:0 0 4px;font-size:18px}
+  .home-cat .go{float:right;font-size:13px;cursor:pointer;color:var(--accent)}
+  ul.plain{margin:8px 0 0;padding-left:18px} ul.plain li{margin:3px 0}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 8px}
+  .controls input{background:var(--panel2);border:1px solid var(--line);color:var(--txt);
+    padding:8px 10px;border-radius:8px;font-size:14px}
+  details{margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+  summary{cursor:pointer;padding:12px 14px;font-weight:600;user-select:none}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px 10px;text-align:right;border-top:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left;white-space:normal}
+  th{color:var(--dim);font-weight:600;cursor:pointer;position:sticky;top:56px;background:var(--panel)}
+  tbody tr:hover{background:var(--panel2)}
+  .name{color:var(--gold)}
+  .tablewrap{max-height:70vh;overflow:auto}
+  .note{color:var(--dim);font-size:12.5px;margin-top:8px}
+  .warn{background:#231a12;border:1px solid #4a3410;color:#e0c48a;padding:10px 12px;
+    border-radius:10px;font-size:13px;margin:10px 0}
+  .hide{display:none}
+  footer{color:var(--dim);font-size:12px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap" style="padding-bottom:0">
+    <h1>PoE2 Flip Radar <span id="league"></span></h1>
+    <div class="meta">
+      <b id="divine">–</b> Ex per Divine ·
+      Chance Orb <b id="chance">–</b> Ex ·
+      updated <b id="updated">–</b> ·
+      <span id="counts"></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <nav id="nav"></nav>
+  <div id="view"></div>
+  <footer>
+    Data: <a href="https://poe2scout.com" target="_blank" rel="noopener">poe2scout.com</a> ·
+    refreshes daily via GitHub Actions · not affiliated with Grinding Gear Games.
+  </footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let DATA = null, CUR = "home";
+
+const fmtEx = v => v==null ? "–" : (v>=1000 ? Math.round(v).toLocaleString() : (Math.round(v*100)/100));
+const fmtDiv = v => v==null ? "" : (v>=100? Math.round(v): Math.round(v*100)/100)+" div";
+const chg = v => v==null ? '<span class="sub">–</span>'
+  : `<span class="${v>=0?'up':'down'}">${v>=0?'▲':'▼'} ${Math.abs(v)}%</span>`;
+
+const TABS = [
+  ["home","⭐ Start Here"],
+  ["currency","💰 Currency"],
+  ["uniques","📈 Unique Flips"],
+  ["essences","🧪 Essences"],
+  ["chancing","🎰 Chancing"],
+];
+
+function toDiv(ex){ return DATA.divine_ex ? ex/DATA.divine_ex : null; }
+
+function nav(){
+  $("#nav").innerHTML = TABS.map(([k,l])=>
+    `<button class="${k===CUR?'on':''}" onclick="go('${k}')">${l}</button>`).join("");
+}
+function go(k){ CUR=k; nav(); render(); window.scrollTo(0,0); }
+
+function suggCardUnique(u){
+  return `<div class="card"><h3 class="name">${u.name}</h3>
+    <div class="sub">${u.type||u.base||""}</div>
+    <div class="big">${fmtEx(u.price)} Ex <span class="sub">${fmtDiv(toDiv(u.price))}</span></div>
+    <div class="sub">${(u.qty||0).toLocaleString()} listed · 7d ${chg(u.chg7d)}
+      <span class="pill">flip ${u.score??'–'}</span></div></div>`;
+}
+function suggCardCur(c){
+  return `<div class="card"><h3 class="name">${c.name}</h3>
+    <div class="big">${fmtEx(c.price)} Ex <span class="sub">${fmtDiv(toDiv(c.price))}</span></div>
+    <div class="sub">${(c.qty||0).toLocaleString()} in market · 7d ${chg(c.chg7d)}</div></div>`;
+}
+function chanceCard(o){
+  return `<div class="card">
+    <h3>🎰 Chance a <span class="name">${o.base}</span></h3>
+    <div class="sub">Invest ~${o.invest_div} div in Chance Orbs + base</div>
+    <div class="big">${o.jackpot} <span class="sub">${o.jackpot_div} div</span></div>
+    <div class="sub">Jackpot is ${o.jackpot_ex.toLocaleString()} Ex.
+      ${o.consolations.length? "Also possible: "+o.consolations.map(c=>c.name).join(", ")+"." : "No consolation prizes on this base."}</div>
+    <div class="note">Break-even: you profit only if you hit better than
+      <b>1-in-${Math.round(100/o.breakeven_pct).toLocaleString()}</b>. Real odds are hidden &amp; usually worse for chase items.</div>
+  </div>`;
+}
+
+// ---------- sortable / filterable table ----------
+function table(rows, cols, id){
+  const cid = "t"+id;
+  window[cid] = {rows, cols, sort:cols[cols.length-1].k, dir:-1, q:"", minP:0, minQ:0};
+  return `<div class="controls">
+      <input placeholder="search name…" oninput="tq('${cid}',this.value)">
+      <input type="number" placeholder="min Ex" style="width:90px" oninput="tp('${cid}',this.value)">
+      <input type="number" placeholder="min qty" style="width:90px" oninput="tk('${cid}',this.value)">
+      <span class="sub" id="${cid}n"></span>
+    </div>
+    <div class="tablewrap"><table><thead><tr>${
+      cols.map(c=>`<th onclick="ts('${cid}','${c.k}')">${c.t}</th>`).join("")
+    }</tr></thead><tbody id="${cid}b"></tbody></table></div>`;
+}
+function drawTable(cid){
+  const st=window[cid]; let r=st.rows.filter(x=>
+    (!st.q || (x.name||"").toLowerCase().includes(st.q)) &&
+    (x.price||0)>=st.minP && (x.qty||0)>=st.minQ);
+  r.sort((a,b)=>{const A=a[st.sort],B=b[st.sort];
+    if(A==null)return 1; if(B==null)return -1; return (A>B?1:A<B?-1:0)*st.dir;});
+  $("#"+cid+"n").textContent = r.length+" items";
+  $("#"+cid+"b").innerHTML = r.slice(0,400).map(x=>"<tr>"+st.cols.map(c=>{
+    let v=x[c.k];
+    if(c.f==="ex") v=`${fmtEx(v)}<span class="sub"> ${fmtDiv(toDiv(v))}</span>`;
+    else if(c.f==="chg") v=chg(v);
+    else if(c.f==="num") v=(v||0).toLocaleString();
+    else if(c.f==="name") v=`<span class="name">${v??""}</span>`;
+    else if(v==null) v="–";
+    return `<td>${v}</td>`;}).join("")+"</tr>").join("");
+}
+function ts(cid,k){const s=window[cid]; s.dir = s.sort===k? -s.dir : -1; s.sort=k; drawTable(cid);}
+function tq(cid,v){window[cid].q=v.toLowerCase();drawTable(cid);}
+function tp(cid,v){window[cid].minP=+v||0;drawTable(cid);}
+function tk(cid,v){window[cid].minQ=+v||0;drawTable(cid);}
+
+const UCOLS=[{k:"name",t:"Unique",f:"name"},{k:"type",t:"Base"},
+  {k:"price",t:"Price",f:"ex"},{k:"qty",t:"Listed",f:"num"},
+  {k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"}];
+const CCOLS=[{k:"name",t:"Currency",f:"name"},{k:"price",t:"Price (Ex)",f:"ex"},
+  {k:"qty",t:"In market",f:"num"},{k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"}];
+const XCOLS=[{k:"base",t:"White base",f:"name"},{k:"jackpot",t:"Jackpot unique"},
+  {k:"jackpot_div",t:"Jackpot (div)"},{k:"num_uniques",t:"# uniques"},
+  {k:"breakeven_pct",t:"Break-even %"},{k:"jackpot_ex",t:"Jackpot (Ex)",f:"num"}];
+
+function allUniques(){return Object.values(DATA.uniques_by_cat).flat();}
+function allCurrency(){return DATA.currency_by_cat.currency||[];}
+
+function render(){
+  const v=$("#view");
+  if(CUR==="home"){
+    const s=DATA.suggestions;
+    v.innerHTML = `<p class="lead">Four ways to grow currency, with today's best picks based on
+      price history. Tap a category for the full, searchable list.</p>
+    ${homeBlock("💰 Currency Arbitrage","currency",
+      "Buy liquid orbs low, resell higher. Lowest risk.",
+      s.currency.slice(0,3).map(c=>`${c.name} — <b>${fmtEx(c.price)} Ex</b>, ${(c.qty||0).toLocaleString()} in market, 7d ${c.chg7d??0}%`))}
+    ${homeBlock("📈 Unique Flips","uniques",
+      "Buy underpriced uniques, relist at market. Pick liquid, rising ones.",
+      s.uniques.slice(0,3).map(u=>`${u.name} — <b>${fmtEx(u.price)} Ex</b> (${fmtDiv(toDiv(u.price))}), flip score ${u.score}`))}
+    ${homeBlock("🧪 Essence Flips","essences",
+      "Bulk-buy in-demand essences, retail on trade. These are rising now.",
+      s.essences.slice(0,3).map(e=>`${e.name} — <b>${fmtEx(e.price)} Ex</b>, 7d +${e.chg7d}%`))}
+    ${homeBlock("🎰 Chancing (lottery)","chancing",
+      "Gamble cheap Chance Orbs on a white base for a shot at a big unique.",
+      s.chancing.slice(0,3).map(o=>`${o.base} → <b>${o.jackpot}</b> (${o.jackpot_div} div) · break-even 1-in-${Math.round(100/o.breakeven_pct).toLocaleString()}`))}`;
+    return;
+  }
+  if(CUR==="currency"){
+    v.innerHTML = `<p class="lead">Most liquid currency, ranked by market depth. Buy at the bid /
+      sell at the ask on the in-game Currency Exchange, or bulk-buy and retail on trade.</p>
+      <div class="cards">${DATA.suggestions.currency.map(suggCardCur).join("")}</div>
+      <details open><summary>All currency (${allCurrency().length}) — search &amp; sort</summary>
+        ${table(allCurrency(),CCOLS,"C")}</details>`;
+    drawTable("tC"); return;
+  }
+  if(CUR==="uniques"){
+    const u=allUniques();
+    v.innerHTML = `<p class="lead">Best unique flips right now: liquid, meaningful value, and not
+      crashing. Buy copies listed below the median and relist. Full browse table below.</p>
+      <div class="cards">${DATA.suggestions.uniques.map(suggCardUnique).join("")}</div>
+      <details open><summary>All uniques (${u.length}) — search, sort, filter</summary>
+        ${table(u,UCOLS,"U")}</details>`;
+    drawTable("tU"); return;
+  }
+  if(CUR==="essences"){
+    const e=DATA.currency_by_cat.essences||[];
+    v.innerHTML = `<p class="lead">Essences trade constantly. The picks below are <b>rising</b> against
+      the market — bulk-buy and retail. Thin, spiky ones (tiny stock) are noise, not signal.</p>
+      <div class="cards">${DATA.suggestions.essences.map(suggCardCur).join("")}</div>
+      <details open><summary>All essences (${e.length})</summary>${table(e,CCOLS,"E")}</details>`;
+    drawTable("tE"); return;
+  }
+  if(CUR==="chancing"){
+    v.innerHTML = `<div class="warn"><b>How to read this:</b> chancing turns a white base into a
+      random unique <i>of that same base</i> — or destroys it. Odds are hidden and usually brutal
+      for chase items. "Break-even" = the hit-rate you'd need just to not lose currency. Treat it
+      as a lottery, not a strategy. The guaranteed-profit move is to just <i>sell</i> your Chance Orbs.</div>
+      <div class="cards">${DATA.chancing.slice(0,12).map(chanceCard).join("")}</div>
+      <details><summary>All chanceable bases (${DATA.chancing.length})</summary>
+        ${table(DATA.chancing,XCOLS,"X")}</details>`;
+    drawTable("tX"); return;
+  }
+}
+function homeBlock(title,key,desc,lines){
+  return `<div class="home-cat"><span class="go" onclick="go('${key}')">Open →</span>
+    <h2>${title}</h2><div class="sub">${desc}</div>
+    <ul class="plain">${lines.map(l=>`<li>${l}</li>`).join("")||"<li class='sub'>No picks today.</li>"}</ul></div>`;
+}
+
+fetch("data.json?"+Date.now()).then(r=>r.json()).then(d=>{
+  DATA=d;
+  $("#league").textContent = "· "+d.league+(d.seed?" (seed data — waiting for first daily run)":"");
+  $("#divine").textContent = fmtEx(d.divine_ex);
+  $("#chance").textContent = fmtEx(d.chance_ex);
+  $("#updated").textContent = new Date(d.generated).toLocaleString();
+  $("#counts").textContent = `${d.counts.uniques} uniques · ${d.counts.currency} currency · ${d.counts.chancing_bases} chance bases`;
+  nav(); render();
+}).catch(e=>{ $("#view").innerHTML = "<p class='lead'>Couldn't load data.json yet. If you just deployed, wait for the first GitHub Action run.</p>"; });
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+name: Update PoE2 economy data
+
+on:
+  schedule:
+    # 06:15 UTC every day
+    - cron: "15 6 * * *"
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch + build data.json
+        run: python scripts/fetch_data.py
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "flip-radar-bot"
+          git config user.email "actions@github.com"
+          git add docs/data.json docs/history
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "data: $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push
+          fi
