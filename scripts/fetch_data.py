@@ -67,6 +67,28 @@ def trend_from_logs(current, logs):
     return pct(current, clean[0]["Price"]), pct(current, clean[-1]["Price"])
 
 
+def sig(v, n=4):
+    """Round to n significant figures; keeps the JSON small and the shape intact."""
+    if v is None or v == 0:
+        return v
+    return round(v, -int(math.floor(math.log10(abs(v)))) + (n - 1))
+
+
+def spark_from_logs(current, logs):
+    """Compact price series oldest->newest (ending at current) for a sparkline.
+
+    PriceLogs are newest-first and may contain nulls; we drop nulls, reverse to
+    chronological order, and append the current price as the final point.
+    Returns None when there's not enough signal to draw a line.
+    """
+    clean = [e["Price"] for e in (logs or []) if e and e.get("Price")]
+    series = list(reversed(clean))
+    if current:
+        series.append(current)
+    series = [sig(p) for p in series if p]
+    return series if len(series) >= 2 else None
+
+
 def paginate(kind, league, cat):
     endpoint = "Uniques/ByCategory" if kind == "u" else "Currencies/ByCategory"
     items, page = [], 1
@@ -91,7 +113,8 @@ def norm_unique(it):
             "base": meta.get("base_type") or it.get("Type"),
             "type": it.get("Type"), "cat": it.get("CategoryApiId"),
             "price": price, "qty": it.get("CurrentQuantity"),
-            "chg1d": c1, "chg7d": c7, "icon": it.get("IconUrl")}
+            "chg1d": c1, "chg7d": c7, "spark": spark_from_logs(price, it.get("PriceLogs")),
+            "icon": it.get("IconUrl")}
 
 
 def norm_currency(it):
@@ -99,7 +122,8 @@ def norm_currency(it):
     c1, c7 = trend_from_logs(price, it.get("PriceLogs"))
     return {"name": it.get("Text") or it.get("ApiId"), "apiId": it.get("ApiId"),
             "price": price, "qty": it.get("CurrentQuantity"),
-            "chg1d": c1, "chg7d": c7, "icon": it.get("IconUrl")}
+            "chg1d": c1, "chg7d": c7, "spark": spark_from_logs(price, it.get("PriceLogs")),
+            "icon": it.get("IconUrl")}
 
 
 def flip_score(row):

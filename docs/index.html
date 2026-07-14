@@ -50,6 +50,7 @@
   th{color:var(--dim);font-weight:600;cursor:pointer;position:sticky;top:0;background:var(--panel);z-index:1}
   tbody tr:hover{background:var(--panel2)}
   .name{color:var(--gold)}
+  .spark{vertical-align:middle}
   .tablewrap{max-height:70vh;overflow:auto}
   .note{color:var(--dim);font-size:12.5px;margin-top:8px}
   .warn{background:#231a12;border:1px solid #4a3410;color:#e0c48a;padding:10px 12px;
@@ -88,6 +89,23 @@ const fmtEx = v => v==null ? "–" : (v>=1000 ? Math.round(v).toLocaleString() :
 const fmtDiv = v => v==null ? "" : (v>=100? Math.round(v): Math.round(v*100)/100)+" div";
 const chg = v => v==null ? '<span class="sub">–</span>'
   : `<span class="${v>=0?'up':'down'}">${v>=0?'▲':'▼'} ${Math.abs(v)}%</span>`;
+
+// tiny inline-SVG sparkline of a price series (oldest -> newest)
+function sparkSvg(series){
+  if(!Array.isArray(series) || series.length<2) return '<span class="sub">–</span>';
+  const w=62,h=18,pad=2, n=series.length;
+  const min=Math.min(...series), max=Math.max(...series), rng=(max-min)||1;
+  const x=i=> pad + i*(w-2*pad)/(n-1);
+  const y=v=> pad + (h-2*pad)*(1-(v-min)/rng);
+  const pts=series.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const up = series[n-1] >= series[0];
+  const col = up ? "var(--up)" : "var(--down)";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" `+
+    `role="img" aria-label="7 day price trend">`+
+    `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" `+
+    `stroke-linejoin="round" stroke-linecap="round"/>`+
+    `<circle cx="${x(n-1).toFixed(1)}" cy="${y(series[n-1]).toFixed(1)}" r="1.7" fill="${col}"/></svg>`;
+}
 
 const TABS = [
   ["home","⭐ Start Here"],
@@ -140,7 +158,9 @@ function table(rows, cols, id){
       <span class="sub" id="${cid}n"></span>
     </div>
     <div class="tablewrap"><table><thead><tr>${
-      cols.map(c=>`<th onclick="ts('${cid}','${c.k}')">${c.t}</th>`).join("")
+      cols.map(c=>c.nosort
+        ? `<th style="cursor:default">${c.t}</th>`
+        : `<th onclick="ts('${cid}','${c.k}')">${c.t}</th>`).join("")
     }</tr></thead><tbody id="${cid}b"></tbody></table></div>`;
 }
 function drawTable(cid){
@@ -154,6 +174,7 @@ function drawTable(cid){
     let v=x[c.k];
     if(c.f==="ex") v=`${fmtEx(v)}<span class="sub"> ${fmtDiv(toDiv(v))}</span>`;
     else if(c.f==="chg") v=chg(v);
+    else if(c.f==="spark") v=sparkSvg(v);
     else if(c.f==="num") v=(v||0).toLocaleString();
     else if(c.f==="name") v=`<span class="name">${v??""}</span>`;
     else if(v==null) v="–";
@@ -166,9 +187,11 @@ function tk(cid,v){window[cid].minQ=+v||0;drawTable(cid);}
 
 const UCOLS=[{k:"name",t:"Unique",f:"name"},{k:"type",t:"Base"},
   {k:"price",t:"Price",f:"ex"},{k:"qty",t:"Listed",f:"num"},
-  {k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"}];
+  {k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"},
+  {k:"spark",t:"7d trend",f:"spark",nosort:true}];
 const CCOLS=[{k:"name",t:"Currency",f:"name"},{k:"price",t:"Price (Ex)",f:"ex"},
-  {k:"qty",t:"In market",f:"num"},{k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"}];
+  {k:"qty",t:"In market",f:"num"},{k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"},
+  {k:"spark",t:"7d trend",f:"spark",nosort:true}];
 const XCOLS=[{k:"base",t:"White base",f:"name"},{k:"jackpot",t:"Jackpot unique"},
   {k:"jackpot_div",t:"Jackpot (div)"},{k:"num_uniques",t:"# uniques"},
   {k:"breakeven_pct",t:"Break-even %"},{k:"jackpot_ex",t:"Jackpot (Ex)",f:"num"}];
