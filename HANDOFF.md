@@ -38,8 +38,13 @@ site is the automated version of that thinking.
 
 ```
 scripts/fetch_data.py   THE fetcher+analytics. stdlib only (urllib, json, math). Writes docs/data.json.
-scripts/build_seed.py   Offline seed/test builder. Parses saved sample responses, reuses fetch_data's
-                        transform functions, writes a partial data.json. Safe to delete once live.
+scripts/chanceable_bases.json  Static allowlist of chanceable base types + boss-only denylist,
+                        from a poe2db.tw per-unique drop audit. fetch_data.py reads it to flag
+                        `chanceable` on each unique. This is the source of truth for gotcha #3.
+scripts/_chanceable_parts/  Per-category source data (accessories/weapons/armour) from the poe2db
+                        scrape + _merge.js. Run `node scripts/_chanceable_parts/_merge.js` to
+                        regenerate chanceable_bases.json after a patch. Regeneration scaffolding.
+scripts/build_seed.py   Offline seed/test builder. Safe to delete now that live runs work.
 docs/index.html         Single-file dashboard (vanilla JS, no deps, inline CSS). Reads data.json.
 docs/data.json          Generated data the site reads. Committed so the page works pre-first-run.
 docs/history/*.json     One tiny dated snapshot per day (divine rate + counts) for future trend work.
@@ -50,6 +55,14 @@ README.md               End-user setup + deploy instructions.
 
 Data flow: **GitHub Action → `fetch_data.py` → `docs/data.json` → `index.html`.** No server, no
 build step, no client-side API calls (visitors read the committed JSON, not the API).
+
+**Two data sources now** (both fetched server-side by the Action, still stdlib-only):
+- **poe2scout** — primary: all uniques/currency, prices, price history, and item mods (from
+  `ItemMetadata`, used for the hover tooltips).
+- **poe.ninja economy** (`/poe2/api/economy/stash/current/item/overview?league=..&type=Unique*`) —
+  supplies per-unique `listingCount`, attached as `listings` and used as the popularity metric for
+  the Chanceable Gear tab. Best-effort: if poe.ninja is down the site still builds (falls back to
+  poe2scout quantity). There is NO public PoE2 build-usage API; listings is the honest proxy.
 
 ## The poe2scout API — what we learned (important)
 
@@ -73,10 +86,14 @@ ritual, vaultkeys, breach, abyss, uncutgems, lineagesupportgems, delirium, incur
 2. **`CurrentPrice` / `CurrentQuantity` can be null** on thin items — always filter/guard.
 3. **`IsChanceable` on unique items is unreliable** — it returned `false` for Headhunter and
    Mageblood, which ARE chanceable. **Do not trust it.** We instead group uniques by
-   `ItemMetadata.base_type` (chancing only yields a unique of the same base). Boss-only uniques
-   and Advanced/Expert bases aren't truly chanceable, but the API doesn't flag that cleanly —
-   a known imperfection in the chancing list. If you want accuracy, cross-reference a
-   community "chanceable bases" list.
+   `ItemMetadata.base_type` (chancing only yields a unique of the same base). **RESOLVED:** the
+   false-jackpot problem is now handled by `scripts/chanceable_bases.json`, a curated allowlist
+   from a full poe2db.tw per-unique drop audit (289 chanceable bases + 49 boss-only/quest-reward
+   exclusions across all gear). A unique is `chanceable` iff its base is in the allowlist and its
+   name isn't denylisted. Rule: chanceable = base has a globally-droppable unique + is a plain base
+   tier (not Advanced/Expert/Runemastered) + is released. Regenerate via `_chanceable_parts/_merge.js`
+   after a patch. Note: PoE2 Orb of Chance is binary (Normal → Unique of same base, or destroyed —
+   no Magic/Rare step), and Headhunter/Mageblood ARE chanceable (opposite of PoE1).
 4. **Divine price is inconsistent between endpoints.** `/Leagues` reported DivinePrice ≈ 695 Ex
    while the `currency` category's "Divine Orb" `CurrentPrice` ≈ 464 Ex. We use the **currency
    board value** (`apiId == "divine"`) as the source of truth for Ex↔Div conversion.
@@ -122,16 +139,21 @@ run `fetch_data.py`, assert `data.json` parses and `counts.uniques > 0`.
 
 ## Suggested next steps (roughly prioritized)
 
-1. **Run the Action once and verify** the full `data.json` (all categories populate; divine/chance
-   prices sane). This is the main open item.
-2. **Per-item price-history charts.** `docs/history/` already saves daily snapshots but only the
-   divine rate + counts. To chart individual items, extend the snapshot to store per-item prices
-   (careful with repo size — consider keeping only tracked items, or a rolling 30-day window).
-   Chart.js from CDN is the easy path (allowed on Pages).
-3. **Week-over-week movers.** Compare today's `data.json` to a ~7-day-old snapshot and flag the
-   biggest risers/fallers per category. Needs richer history than #2's current snapshot.
-4. **Refine the chancing list** by intersecting `base_type` with a real chanceable-bases list so
-   boss-only/Advanced/Expert bases stop appearing as false jackpots (see API gotcha #3).
+DONE since first handoff: deployed to Pages (live at https://addohm.github.io/poe2-flip-radar/);
+first Action verified; **7d sparkline column** in tables; **item hover tooltips** (mods from
+poe2scout); **chanceable allowlist** resolving gotcha #3; **Chanceable Gear tab** (top-50 by
+poe.ninja listings). Remaining ideas:
+
+1. **Per-item full price-history charts.** The 7d sparkline covers short-term; for longer charts
+   extend `docs/history/` to store per-item prices (watch repo size — rolling 30-day window).
+2. **Week-over-week movers.** Compare today's `data.json` to a ~7-day-old snapshot and flag the
+   biggest risers/fallers per category. Needs richer history than the current snapshot.
+3. **Chanceable list upkeep.** The list is a point-in-time poe2db audit (patch 0.5.x). Re-run the
+   scrape / `_merge.js` each new league/patch. One known gap: base "Kalguuran Cuffs" (poe2scout
+   calls it "Verisium Cuffs") — a single low-value miss. Advanced/Expert/Runemastered tiers are
+   excluded by design. Could also add a "chanceable?" column to the main Unique Flips table.
+4. **True build-usage %.** Popularity is poe.ninja `listingCount`, not equipped-%. poe.ninja has a
+   PoE2 builds page but no stable public API; a (fragile) scrape of its internal XHR is the only path.
 5. **Currency Exchange spread data.** The API has `ExchangeSnapshot` / `SnapshotPairs` endpoints
    (see openapi.json) — could compute real bid/ask spreads for the arbitrage tab instead of just
    ranking by market depth.
