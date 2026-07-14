@@ -113,7 +113,13 @@ const TABS = [
   ["uniques","📈 Unique Flips"],
   ["essences","🧪 Essences"],
   ["chancing","🎰 Chancing"],
+  ["gear","🛡️ Chanceable Gear"],
 ];
+
+// poe2scout unique categories that count as gear, and their friendly slot label.
+const GEAR_CATS = ["armour","weapon","accessory"];
+const GEAR_LABEL = {armour:"Armour", weapon:"Weapon", accessory:"Jewellery"};
+let GEARFILT = "all";
 
 function toDiv(ex){ return DATA.divine_ex ? ex/DATA.divine_ex : null; }
 
@@ -148,9 +154,11 @@ function chanceCard(o){
 }
 
 // ---------- sortable / filterable table ----------
-function table(rows, cols, id){
+function table(rows, cols, id, defSort){
   const cid = "t"+id;
-  window[cid] = {rows, cols, sort:cols[cols.length-1].k, dir:-1, q:"", minP:0, minQ:0};
+  const sortable = cols.filter(c=>!c.nosort);
+  window[cid] = {rows, cols, sort: defSort || sortable[sortable.length-1].k,
+    dir:-1, q:"", minP:0, minQ:0};
   return `<div class="controls">
       <input placeholder="search name…" oninput="tq('${cid}',this.value)">
       <input type="number" placeholder="min Ex" style="width:90px" oninput="tp('${cid}',this.value)">
@@ -195,9 +203,25 @@ const CCOLS=[{k:"name",t:"Currency",f:"name"},{k:"price",t:"Price (Ex)",f:"ex"},
 const XCOLS=[{k:"base",t:"White base",f:"name"},{k:"jackpot",t:"Jackpot unique"},
   {k:"jackpot_div",t:"Jackpot (div)"},{k:"num_uniques",t:"# uniques"},
   {k:"breakeven_pct",t:"Break-even %"},{k:"jackpot_ex",t:"Jackpot (Ex)",f:"num"}];
+const GCOLS=[{k:"name",t:"Unique",f:"name"},{k:"base",t:"Base"},{k:"slot",t:"Slot"},
+  {k:"price",t:"Price",f:"ex"},{k:"qty",t:"Listed",f:"num"},
+  {k:"chg7d",t:"7d",f:"chg"},{k:"spark",t:"7d trend",f:"spark",nosort:true}];
 
 function allUniques(){return Object.values(DATA.uniques_by_cat).flat();}
 function allCurrency(){return DATA.currency_by_cat.currency||[];}
+
+// Uniques you can actually chance (base verified against poe2db), in gear slots,
+// ranked by market listings (best available proxy for player demand — PoE2 has no
+// public build-usage API). Returns the top `n`.
+function chanceableGear(filt, n){
+  const cats = filt==="all" ? GEAR_CATS : [filt];
+  return allUniques()
+    .filter(u=>u.chanceable && cats.includes(u.cat))
+    .map(u=>({...u, slot: GEAR_LABEL[u.cat]||u.cat}))
+    .sort((a,b)=>(b.qty||0)-(a.qty||0))
+    .slice(0, n||50);
+}
+function setGear(f){ GEARFILT=f; render(); }
 
 function render(){
   const v=$("#view");
@@ -254,6 +278,29 @@ function render(){
         ${table(DATA.chancing,XCOLS,"X")}</details>`;
     drawTable("tX"); return;
   }
+  if(CUR==="gear"){
+    const rows = chanceableGear(GEARFILT, 50);
+    const total = allUniques().filter(u=>u.chanceable && GEAR_CATS.includes(u.cat)).length;
+    const fbtn = (k,l)=>`<button class="${GEARFILT===k?'on':''}" onclick="setGear('${k}')">${l}</button>`;
+    v.innerHTML = `<p class="lead">The top 50 <b>chanceable</b> unique armour, weapons and jewellery —
+      items you can realistically gamble for by chancing their white base (base verified against
+      <a href="https://poe2db.tw" target="_blank" rel="noopener">poe2db</a>). Ranked by how many are
+      listed on trade, a stand-in for how many players use them.</p>
+      <div class="warn">There is no public PoE2 build-usage API, so "popularity" here means
+        <b>market listings</b>, not a build-tracker's usage %. Heavily-used uniques tend to be heavily
+        traded, but a high listing count can also just mean the item is cheap and common.</div>
+      <nav style="position:static;margin:0 0 10px">${fbtn('all','All')}${
+        GEAR_CATS.map(c=>fbtn(c,GEAR_LABEL[c])).join("")}</nav>
+      ${rows.length
+        ? `<div class="controls"><span class="sub">Showing top ${rows.length} of ${
+            GEARFILT==='all'?total:rows.length} chanceable ${GEARFILT==='all'?'gear':GEAR_LABEL[GEARFILT]} uniques</span></div>
+           ${table(rows,GCOLS,"G","qty")}`
+        : `<p class="lead">No chanceable gear in this slot yet. The chanceable list is refreshed
+           from poe2db and expands over time; the daily data run also has to have populated the
+           <code>chanceable</code> flag.</p>`}`;
+    if(rows.length) drawTable("tG");
+    return;
+  }
 }
 function homeBlock(title,key,desc,lines){
   return `<div class="home-cat"><span class="go" onclick="go('${key}')">Open →</span>
@@ -267,7 +314,9 @@ fetch("data.json?"+Date.now()).then(r=>r.json()).then(d=>{
   $("#divine").textContent = fmtEx(d.divine_ex);
   $("#chance").textContent = fmtEx(d.chance_ex);
   $("#updated").textContent = new Date(d.generated).toLocaleString();
-  $("#counts").textContent = `${d.counts.uniques} uniques · ${d.counts.currency} currency · ${d.counts.chancing_bases} chance bases`;
+  $("#counts").textContent = `${d.counts.uniques} uniques · ${d.counts.currency} currency · `+
+    `${d.counts.chancing_bases} chance bases`+
+    (d.counts.chanceable_uniques!=null ? ` · ${d.counts.chanceable_uniques} chanceable` : "");
   nav(); render();
 }).catch(e=>{ $("#view").innerHTML = "<p class='lead'>Couldn't load data.json yet. If you just deployed, wait for the first GitHub Action run.</p>"; });
 </script>

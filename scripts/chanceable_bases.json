@@ -1,0 +1,25 @@
+{
+  "_comment": "Which item base types can be turned into a unique with an Orb of Chance. Curated from poe2db.tw (game-data extraction) + Maxroll 0.5.2. A base qualifies when it has at least one globally-droppable unique, is a plain base tier (not Advanced/Expert), and is in released content. See HANDOFF gotcha #3.",
+  "patch": "0.5.x Runes of Aldur",
+  "source": "https://poe2db.tw/us/ (per-base + per-unique drop data)",
+  "updated": "2026-07-14",
+  "chanceable_bases": [
+    "Utility Belt",
+    "Heavy Belt",
+    "Ornate Belt",
+    "Gold Ring",
+    "Sapphire Ring",
+    "Emerald Ring",
+    "Gold Amulet",
+    "Solar Amulet",
+    "Attuned Wand",
+    "Forked Spear"
+  ],
+  "not_chanceable_notable": [
+    {
+      "unique": "Zerphi's Genesis",
+      "base": "Heavy Belt",
+      "reason": "Boss-locked drop (poe2db: 'Dropped by The Trialmaster'); not in the Orb of Chance global pool."
+    }
+  ]
+}

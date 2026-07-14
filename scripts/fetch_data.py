@@ -26,6 +26,47 @@ DOCS = os.path.normpath(os.path.join(HERE, "..", "docs"))
 OUT = os.path.join(DOCS, "data.json")
 HIST_DIR = os.path.join(DOCS, "history")
 
+# Which item base types can actually be turned into a unique with an Orb of Chance.
+# The poe2scout `IsChanceable` flag is unreliable (see HANDOFF gotcha #3), so we use a
+# curated allowlist derived from poe2db.tw (which reads the game's own data files).
+# Loaded from scripts/chanceable_bases.json so the list can be refreshed without touching code.
+CHANCEABLE_PATH = os.path.join(HERE, "chanceable_bases.json")
+
+
+def load_chanceable():
+    """Return (chanceable_base_set, not_chanceable_unique_set), both normalized lower/stripped.
+
+    File shape: {"chanceable_bases": [...], "not_chanceable_notable": [{"unique": ...}, ...]}
+    Missing file -> empty sets -> nothing is flagged chanceable (safe: no false jackpots).
+    """
+    try:
+        with open(CHANCEABLE_PATH, encoding="utf-8") as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        print("  ! chanceable_bases.json missing/invalid; chancing list will be empty",
+              file=sys.stderr)
+        return frozenset(), frozenset()
+    bases = frozenset(norm_name(b) for b in doc.get("chanceable_bases", []))
+    deny = frozenset(norm_name(u.get("unique", "")) for u in doc.get("not_chanceable_notable", []))
+    return bases, deny
+
+
+def norm_name(s):
+    return (s or "").strip().lower()
+
+
+# Loaded once at import from chanceable_bases.json (norm_name is defined above).
+CHANCEABLE_BASES, NOT_CHANCEABLE = load_chanceable()
+
+# poe2scout categories that count as "gear" for the chanceable-gear view.
+GEAR_CATS = {"armour", "weapon", "accessory"}
+
+
+def is_chanceable(base, name):
+    """A unique is chanceable if its base is in the allowlist and it isn't a
+    known boss-only/unobtainable exception."""
+    return norm_name(base) in CHANCEABLE_BASES and norm_name(name) not in NOT_CHANCEABLE
+
 
 def get(path, params=None, retries=4):
     """GET a JSON endpoint with basic retry/backoff."""
@@ -109,11 +150,13 @@ def norm_unique(it):
     meta = it.get("ItemMetadata") or {}
     price = it.get("CurrentPrice")
     c1, c7 = trend_from_logs(price, it.get("PriceLogs"))
-    return {"name": it.get("Name") or it.get("Text"),
-            "base": meta.get("base_type") or it.get("Type"),
+    name = it.get("Name") or it.get("Text")
+    base = meta.get("base_type") or it.get("Type")
+    return {"name": name, "base": base,
             "type": it.get("Type"), "cat": it.get("CategoryApiId"),
             "price": price, "qty": it.get("CurrentQuantity"),
             "chg1d": c1, "chg7d": c7, "spark": spark_from_logs(price, it.get("PriceLogs")),
+            "chanceable": is_chanceable(base, name),
             "icon": it.get("IconUrl")}
 
 
@@ -146,7 +189,7 @@ def build_chancing(uniques, chance_ex, divine_ex):
     by_base = {}
     for u in uniques:
         b = u.get("base")
-        if b and u.get("price"):
+        if b and u.get("price") and u.get("chanceable"):
             by_base.setdefault(b, []).append(u)
 
     opps = []
@@ -242,7 +285,8 @@ def main():
         "chancing": chancing,
         "suggestions": sugg,
         "counts": {"uniques": len(all_uniques), "currency": len(all_currency),
-                   "chancing_bases": len(chancing)},
+                   "chancing_bases": len(chancing),
+                   "chanceable_uniques": sum(1 for u in all_uniques if u.get("chanceable"))},
     }
 
     with open(OUT, "w", encoding="utf-8") as f:
