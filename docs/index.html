@@ -67,6 +67,11 @@
   .warn{background:#231a12;border:1px solid #4a3410;color:#e0c48a;padding:10px 12px;
     border-radius:10px;font-size:13px;margin:10px 0}
   .hide{display:none}
+  #unit{display:inline-flex;gap:0;margin-top:8px;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  #unit button{background:var(--panel2);color:var(--dim);border:0;border-left:1px solid var(--line);
+    padding:5px 12px;cursor:pointer;font-size:13px}
+  #unit button:first-child{border-left:0}
+  #unit button.on{background:var(--gold);color:#20160a;font-weight:600}
   footer{color:var(--dim);font-size:12px;text-align:center;margin-top:30px}
 </style>
 </head>
@@ -79,6 +84,13 @@
       Chance Orb <b id="chance">–</b> Ex ·
       updated <b id="updated">–</b> ·
       <span id="counts"></span>
+    </div>
+    <div class="meta">Prices in
+      <span id="unit">
+        <button data-u="div" class="on" onclick="setUnit('div')">Divine</button>
+        <button data-u="chaos" onclick="setUnit('chaos')">Chaos</button>
+        <button data-u="ex" onclick="setUnit('ex')">Exalted</button>
+      </span>
     </div>
   </div>
 </header>
@@ -95,10 +107,27 @@
 
 <script>
 const $ = s => document.querySelector(s);
-let DATA = null, CUR = "home";
+let DATA = null, CUR = "home", UNIT = "div";
 
 const fmtEx = v => v==null ? "–" : (v>=1000 ? Math.round(v).toLocaleString() : (Math.round(v*100)/100));
 const fmtDiv = v => v==null ? "" : (v>=100? Math.round(v): Math.round(v*100)/100)+" div";
+// price display honours the selected unit (div / chaos / exalted). Internal prices are Ex.
+const UNIT_LABEL = {div:"div", chaos:"chaos", ex:"Ex"};
+function unitRate(){ return UNIT==="div" ? (DATA.divine_ex||1) : UNIT==="chaos" ? (DATA.chaos_ex||1) : 1; }
+function fmtPrice(ex){
+  if(ex==null) return "–";
+  const v = ex/unitRate();
+  let num;
+  if(v>=1000) num=Math.round(v).toLocaleString();
+  else if(v>=1) num=(Math.round(v*100)/100).toLocaleString();
+  else num=+v.toPrecision(2);
+  return num+" "+UNIT_LABEL[UNIT];
+}
+function setUnit(u){
+  UNIT=u;
+  document.querySelectorAll('#unit button').forEach(b=>b.classList.toggle('on', b.dataset.u===u));
+  render();
+}
 const chg = v => v==null ? '<span class="sub">–</span>'
   : `<span class="${v>=0?'up':'down'}">${v>=0?'▲':'▼'} ${Math.abs(v)}%</span>`;
 
@@ -124,8 +153,8 @@ const TABS = [
   ["currency","💰 Currency"],
   ["uniques","📈 Unique Flips"],
   ["essences","🧪 Essences"],
-  ["chancing","🎰 Chancing"],
   ["gear","🛡️ Chanceable Gear"],
+  ["chancing","🎰 Chancing"],
 ];
 
 // poe2scout unique categories that count as gear, and their friendly slot label.
@@ -144,22 +173,21 @@ function go(k){ CUR=k; nav(); render(); window.scrollTo(0,0); }
 function suggCardUnique(u){
   return `<div class="card"><h3 class="name">${u.name}</h3>
     <div class="sub">${u.type||u.base||""}</div>
-    <div class="big">${fmtEx(u.price)} Ex <span class="sub">${fmtDiv(toDiv(u.price))}</span></div>
+    <div class="big">${fmtPrice(u.price)}</div>
     <div class="sub">${(u.qty||0).toLocaleString()} listed · 7d ${chg(u.chg7d)}
       <span class="pill">flip ${u.score??'–'}</span></div></div>`;
 }
 function suggCardCur(c){
   return `<div class="card"><h3 class="name">${c.name}</h3>
-    <div class="big">${fmtEx(c.price)} Ex <span class="sub">${fmtDiv(toDiv(c.price))}</span></div>
+    <div class="big">${fmtPrice(c.price)}</div>
     <div class="sub">${(c.qty||0).toLocaleString()} in market · 7d ${chg(c.chg7d)}</div></div>`;
 }
 function chanceCard(o){
   return `<div class="card">
     <h3>🎰 Chance a <span class="name">${o.base}</span></h3>
-    <div class="sub">Invest ~${o.invest_div} div in Chance Orbs + base</div>
-    <div class="big">${o.jackpot} <span class="sub">${o.jackpot_div} div</span></div>
-    <div class="sub">Jackpot is ${o.jackpot_ex.toLocaleString()} Ex.
-      ${o.consolations.length? "Also possible: "+o.consolations.map(c=>c.name).join(", ")+"." : "No consolation prizes on this base."}</div>
+    <div class="sub">Invest ~${fmtPrice(o.invest_ex)} in Chance Orbs + base</div>
+    <div class="big">${o.jackpot} <span class="sub">${fmtPrice(o.jackpot_ex)}</span></div>
+    <div class="sub">${o.consolations.length? "Also possible: "+o.consolations.map(c=>c.name).join(", ")+"." : "No consolation prizes on this base."}</div>
     <div class="note">Break-even: you profit only if you hit better than
       <b>1-in-${Math.round(100/o.breakeven_pct).toLocaleString()}</b>. Real odds are hidden &amp; usually worse for chase items.</div>
   </div>`;
@@ -195,7 +223,7 @@ function drawTable(cid){
   $("#"+cid+"b").innerHTML = shown.map((x,i)=>
     `<tr data-cid="${cid}" data-idx="${i}"${x.mods?' data-tip="1"':''}>`+st.cols.map(c=>{
     let v=x[c.k];
-    if(c.f==="ex") v=`${fmtEx(v)}<span class="sub"> ${fmtDiv(toDiv(v))}</span>`;
+    if(c.f==="ex"||c.f==="price") v=fmtPrice(v);
     else if(c.f==="chg") v=chg(v);
     else if(c.f==="spark") v=sparkSvg(v);
     else if(c.f==="num") v=(v||0).toLocaleString();
@@ -209,7 +237,9 @@ let TIP=null;
 function buildTip(u){
   const m=u&&u.mods; if(!m) return "";
   const row=(s,c)=>`<div class="${c}">${s}</div>`;
-  let h=row(u.name,"tname")+row(u.base||u.type||"","tbase");
+  let h=row(u.name,"tname");
+  const base=u.base||u.type||"";
+  if(base) h+=row(base,"tbase");
   if(m.lvl) h+=row("Requires Level "+m.lvl,"tlvl");
   (m.i||[]).forEach(s=>h+=row(s,"tmod"));
   if((m.i&&m.i.length)&&(m.e&&m.e.length)) h+=`<div class="tsep"></div>`;
@@ -246,12 +276,12 @@ const UCOLS=[{k:"name",t:"Unique",f:"name"},{k:"type",t:"Base"},
   {k:"price",t:"Price",f:"ex"},{k:"qty",t:"Listed",f:"num"},
   {k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"},
   {k:"spark",t:"7d trend",f:"spark",nosort:true}];
-const CCOLS=[{k:"name",t:"Currency",f:"name"},{k:"price",t:"Price (Ex)",f:"ex"},
+const CCOLS=[{k:"name",t:"Currency",f:"name"},{k:"price",t:"Price",f:"ex"},
   {k:"qty",t:"In market",f:"num"},{k:"chg1d",t:"1d",f:"chg"},{k:"chg7d",t:"7d",f:"chg"},
   {k:"spark",t:"7d trend",f:"spark",nosort:true}];
 const XCOLS=[{k:"base",t:"White base",f:"name"},{k:"jackpot",t:"Jackpot unique"},
-  {k:"jackpot_div",t:"Jackpot (div)"},{k:"num_uniques",t:"# uniques"},
-  {k:"breakeven_pct",t:"Break-even %"},{k:"jackpot_ex",t:"Jackpot (Ex)",f:"num"}];
+  {k:"jackpot_ex",t:"Jackpot",f:"price"},{k:"num_uniques",t:"# uniques"},
+  {k:"breakeven_pct",t:"Break-even %"}];
 const GCOLS=[{k:"name",t:"Unique",f:"name"},{k:"base",t:"Base"},{k:"slot",t:"Slot"},
   {k:"price",t:"Price",f:"ex"},{k:"pop",t:"Players (listings)",f:"num"},
   {k:"chg7d",t:"7d",f:"chg"},{k:"spark",t:"7d trend",f:"spark",nosort:true}];
@@ -280,16 +310,19 @@ function render(){
       price history. Tap a category for the full, searchable list.</p>
     ${homeBlock("💰 Currency Arbitrage","currency",
       "Buy liquid orbs low, resell higher. Lowest risk.",
-      s.currency.slice(0,3).map(c=>`${c.name} — <b>${fmtEx(c.price)} Ex</b>, ${(c.qty||0).toLocaleString()} in market, 7d ${c.chg7d??0}%`))}
+      s.currency.slice(0,3).map(c=>`${c.name} — <b>${fmtPrice(c.price)}</b>, ${(c.qty||0).toLocaleString()} in market, 7d ${c.chg7d??0}%`))}
     ${homeBlock("📈 Unique Flips","uniques",
       "Buy underpriced uniques, relist at market. Pick liquid, rising ones.",
-      s.uniques.slice(0,3).map(u=>`${u.name} — <b>${fmtEx(u.price)} Ex</b> (${fmtDiv(toDiv(u.price))}), flip score ${u.score}`))}
+      s.uniques.slice(0,3).map(u=>`${u.name} — <b>${fmtPrice(u.price)}</b>, flip score ${u.score}`))}
     ${homeBlock("🧪 Essence Flips","essences",
       "Bulk-buy in-demand essences, retail on trade. These are rising now.",
-      s.essences.slice(0,3).map(e=>`${e.name} — <b>${fmtEx(e.price)} Ex</b>, 7d +${e.chg7d}%`))}
+      s.essences.slice(0,3).map(e=>`${e.name} — <b>${fmtPrice(e.price)}</b>, 7d +${e.chg7d}%`))}
+    ${homeBlock("🛡️ Chanceable Gear","gear",
+      "The chase uniques you can actually gamble for, ranked by how many players use them.",
+      chanceableGear('all',3).map(u=>`${u.name} — <b>${fmtPrice(u.price)}</b> · ${(u.pop||0).toLocaleString()} listed · ${u.slot}`))}
     ${homeBlock("🎰 Chancing (lottery)","chancing",
       "Gamble cheap Chance Orbs on a white base for a shot at a big unique.",
-      s.chancing.slice(0,3).map(o=>`${o.base} → <b>${o.jackpot}</b> (${o.jackpot_div} div) · break-even 1-in-${Math.round(100/o.breakeven_pct).toLocaleString()}`))}`;
+      s.chancing.slice(0,3).map(o=>`${o.base} → <b>${o.jackpot}</b> (${fmtPrice(o.jackpot_ex)}) · break-even 1-in-${Math.round(100/o.breakeven_pct).toLocaleString()}`))}`;
     return;
   }
   if(CUR==="currency"){

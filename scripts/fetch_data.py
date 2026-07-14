@@ -216,12 +216,31 @@ def tooltip_mods(meta):
 
 
 def norm_currency(it):
+    meta = it.get("ItemMetadata") or {}
     price = it.get("CurrentPrice")
     c1, c7 = trend_from_logs(price, it.get("PriceLogs"))
     return {"name": it.get("Text") or it.get("ApiId"), "apiId": it.get("ApiId"),
             "price": price, "qty": it.get("CurrentQuantity"),
             "chg1d": c1, "chg7d": c7, "spark": spark_from_logs(price, it.get("PriceLogs")),
+            "mods": currency_mods(meta, it),
             "icon": it.get("IconUrl")}
+
+
+def currency_mods(meta, it):
+    """Tooltip bundle for currency/essences: what the item does. Reuses the unique
+    tooltip shape (e=effect lines shown as mods, f=description shown as flavour)."""
+    effect = meta.get("effect") or it.get("effect")
+    desc = meta.get("description") or it.get("description")
+    lines = effect if isinstance(effect, list) else ([effect] if effect else [])
+    lines = [s for s in lines if s]
+    if not (lines or desc):
+        return None
+    out = {}
+    if lines:
+        out["e"] = lines
+    if desc:
+        out["f"] = desc
+    return out
 
 
 def flip_score(row):
@@ -331,6 +350,7 @@ def main():
 
     divine_ex = find_cur("divine") or 400.0
     chance_ex = find_cur("chance") or 5.0
+    chaos_ex = find_cur("chaos") or 50.0
     essences = currency_by_cat.get("essences", [])
     chancing = build_chancing(all_uniques, chance_ex, divine_ex)
     sugg = suggestions(all_uniques, currency_by_cat.get("currency", []), essences, chancing)
@@ -340,6 +360,7 @@ def main():
         "league": league,
         "divine_ex": round(divine_ex, 1),
         "chance_ex": round(chance_ex, 2),
+        "chaos_ex": round(chaos_ex, 2),
         "category_labels": {c["ApiId"]: c["Label"] for c in
                             cats.get("UniqueCategories", []) + cats.get("CurrencyCategories", [])},
         "uniques_by_cat": uniques_by_cat,
